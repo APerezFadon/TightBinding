@@ -1,5 +1,4 @@
 from TightBinding import TightBinding, Site, shapes
-from shapes import shapes
 import numpy as np
 
 L = 4

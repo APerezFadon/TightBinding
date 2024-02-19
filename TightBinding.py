@@ -52,7 +52,7 @@ class TightBinding:
     def abs_pos(self, site):
         return site.unit @ self.primitive + self.loc_sites[site.sublattice]
     
-    def plot_lattice(self, cols = None, size = None, show = True):
+    def plot_lattice(self, cols = None, title = None, size = None, show = True):
         fig, ax = plt.subplots()
         patches = []
 
@@ -60,7 +60,7 @@ class TightBinding:
             cols = [0 for i in range(len(self.sites))]
         
         if size == None:
-            size = 0.1
+            size = 0.25
 
         for site in self.sites:
             patches.append(Circle(self.abs_pos(site), size))
@@ -69,7 +69,12 @@ class TightBinding:
         p.set_array(cols)
         ax.add_collection(p)
         ax.axis('scaled')
-        ax.set_title(f"Lattice")
+
+        if title == None:
+            ax.set_title(f"Lattice")
+        else:
+            ax.set_title(title)
+
         ax.axis('equal')
         ax.set_facecolor((0.85, 0.85, 0.85))
         fig.colorbar(p, ax=ax)
@@ -79,7 +84,7 @@ class TightBinding:
         
     def site_to_vec(self, site):
         indx = np.where(self.sites == site)[0][0]
-        vec = np.zeros((self.dim, 1), dtype = np.complex128)
+        vec = np.zeros((self.sites.shape[0], 1), dtype = np.complex128)
         vec[indx] = 1
         return vec
     
@@ -106,6 +111,7 @@ class TightBinding:
                         Jmax = Jmin + self.norbs
                         self.H[Jmin: Jmax, Imin: Imax] = self.hopping_kind[j][2]
                         self.H[Imin: Imax, Jmin: Jmax] = np.conj(self.hopping_kind[j][2]).T
+        return self.H
     
     def see_hamiltonian(self, show = True):
         fig, axs = plt.subplots(1, 2)
@@ -150,7 +156,7 @@ class TightBinding:
             for orb in range(self.norbs):
                 cols[k // self.norbs] += np.abs(self.eighvecs[k + orb, i])**2
 
-        self.plot_lattice(cols, size, show)
+        self.plot_lattice(cols, f"Eigenstate {i} with Energy {self.eighvals[i]}", size, show)
 
 
 if __name__ == "__main__":
