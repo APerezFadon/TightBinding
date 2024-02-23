@@ -8,11 +8,11 @@ from .diagonaliser import diagonalise
 
 class TightBinding:
     def __init__(self, 
-                 shape, # boolean function: returns True if a point (x, y) is within bounds
-                 primitive, # 2D numpy arrays: primitive unit vectors (vec1, vec2)
-                 loc_sites = [np.array([0, 0])], # list of 2D numpy arrays: location of sites within unit cell
-                 norbs = 1, # integer: number of orbitals per site
-                 start = np.array([0, 0])): # 2D numpy array: position of unit cell that is inside shape
+                 shape: function, # returns True if a point (x, y) is within bounds
+                 primitive: np.ndarray, # primitive unit vectors (vec1, vec2)
+                 loc_sites: list[np.ndarray] = [np.array([0, 0])], # location of sites within unit cell
+                 norbs: int = 1, # number of orbitals per site
+                 start: np.ndarray = np.array([0, 0])): # position of unit cell that is inside shape
         
         self.shape = shape
         self.primitive = primitive
@@ -20,9 +20,9 @@ class TightBinding:
         self.norbs = norbs
         self.start = start
     
-    def get_pos(self, site):
+    def get_pos(self, site: Site) -> np.ndarray:
         return site.unit @ self.primitive + self.loc_sites[site.sublattice]
-                
+
     def initialise(self):
         self.dim = 0
         self.sites = []
@@ -34,7 +34,7 @@ class TightBinding:
 
         self.hopping_kind = []
 
-    def add_sites(self, current):
+    def add_sites(self, current: np.ndarray):
         fully_out = True
         for i in range(len(self.loc_sites)):
             s = Site(current, i)
@@ -49,10 +49,7 @@ class TightBinding:
             self.add_sites(current + np.array([-1, 0]))
             self.add_sites(current + np.array([0, -1]))
     
-    def abs_pos(self, site):
-        return site.unit @ self.primitive + self.loc_sites[site.sublattice]
-    
-    def plot_lattice(self, cols = None, title = None, size = None, show = True):
+    def plot_lattice(self, cols: list = None, title: str = None, size: list = None, show: bool = True):
         fig, ax = plt.subplots()
         patches = []
 
@@ -82,21 +79,21 @@ class TightBinding:
         if show:
             plt.show()
         
-    def site_to_vec(self, site):
+    def site_to_vec(self, site: Site) -> np.ndarray:
         indx = np.where(self.sites == site)[0][0]
         vec = np.zeros((self.sites.shape[0], 1), dtype = np.complex128)
         vec[indx] = 1
         return vec
     
-    def add_hopping_kind(self, rel_unit, # numpy array: relative vector between unit cells
-                               sublattices, # tuple: (source sublattice, target sublattice)
-                               value): # matrix element
+    def add_hopping_kind(self, rel_unit: np.ndarray, # relative vector between unit cells
+                               sublattices: tuple, # (source sublattice, target sublattice)
+                               value: np.ndarray): # matrix element
         if self.norbs != 1:
             assert(value.shape[0] == self.norbs)
             assert(value.shape[1] == self.norbs)
         self.hopping_kind.append([rel_unit, sublattices, value])
 
-    def make_hamiltonian(self):
+    def make_hamiltonian(self) -> np.ndarray:
         self.H = np.zeros((self.dim, self.dim), dtype = np.complex128)
         for i in range(self.sites.shape[0]):
             for j in range(len(self.hopping_kind)):
@@ -113,7 +110,7 @@ class TightBinding:
                         self.H[Imin: Imax, Jmin: Jmax] = np.conj(self.hopping_kind[j][2]).T
         return self.H
     
-    def see_hamiltonian(self, show = True):
+    def see_hamiltonian(self, show: float = True):
         fig, axs = plt.subplots(1, 2)
         axs[0].set_title("Real part")
         axs[0].imshow(np.real(self.H))
@@ -124,7 +121,7 @@ class TightBinding:
         if show:
             plt.show()
     
-    def eigh(self, symmetry = None):
+    def eigh(self, symmetry: np.ndarray = None) -> tuple[np.ndarray]:
         if symmetry is None:
             eighsystem = np.linalg.eigh(self.H)
             eighvals = np.real(eighsystem[0])
@@ -139,7 +136,7 @@ class TightBinding:
             self.eighvecs = eighsystem[1]
             return self.eighvals, self.eighvecs
     
-    def plot_spectrum(self, show = True):
+    def plot_spectrum(self, show: bool = True):
         plt.figure()
         plt.title("Spectrum")
         plt.scatter([i for i in range(self.eighvals.shape[0])], self.eighvals, s = 5)
@@ -150,7 +147,7 @@ class TightBinding:
         if show:
             plt.show()
     
-    def plot_eigenstate(self, i, size = None, show = True):
+    def plot_eigenstate(self, i: int, size: int = None, show = True):
         cols = np.zeros(self.sites.shape[0])
         for k in range(0, self.dim, self.norbs):
             for orb in range(self.norbs):
