@@ -1,5 +1,4 @@
-from TightBinding import TightBinding
-from shapes import shapes
+from TightBinding import TightBinding, Site, shapes
 import numpy as np
 
 PauliI = np.array([[1, 0], [0, 1]], dtype = np.complex128)

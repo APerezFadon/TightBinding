@@ -48,33 +48,54 @@ class TightBinding:
         self.dim = 0
         self.sites = []
 
-        self.add_sites(self.start)
+        self.add_sites()
         self.dim *= self.norbs
 
         self.sites = np.sort(self.sites)
 
         self.hopping_kind = []
-
-    def add_sites(self, current: np.ndarray) -> None:
+    
+    def add_sites(self) -> None:
         """
         Recursively iterate through sites enclosed by shape. If the site is inside
         the domain, add it to self.sites
         """
-        
-        fully_out = True
+
+        current = self.start
+        stack = [current]
+
+        directions = [np.array([1, 0]), 
+                      np.array([0, 1]), 
+                      np.array([-1, 0]), 
+                      np.array([0, -1])]
+
         for i in range(len(self.loc_sites)):
             s = Site(current, i)
-            if self.shape(self.get_pos(s)) and s not in self.sites:
-                self.dim += 1
-                self.sites.append(s)
-                fully_out = False
-        
-        if not fully_out:
-            self.add_sites(current + np.array([1, 0]))
-            self.add_sites(current + np.array([0, 1]))
-            self.add_sites(current + np.array([-1, 0]))
-            self.add_sites(current + np.array([0, -1]))
+            self.sites.append(s)
+            self.dim += 1
+
+        while len(stack) != 0:
+            current = stack.pop()
+            for i in range(len(self.loc_sites)):
+                s = Site(current, i)
+                if self.shape(self.get_pos(s)) and s not in self.sites:
+                    self.sites.append(s)
+                    self.dim += 1
+            
+            for i in range(len(directions)):
+                if self.check_unit_cell(current + directions[i]):
+                    stack.append(current + directions[i])
     
+    def check_unit_cell(self, unit: np.ndarray) -> bool:
+        """
+        Works out if a unit cell has any sites in the domain
+        """
+        for i in range(len(self.loc_sites)):
+            s = Site(unit, i)
+            if self.shape(self.get_pos(s)) and s not in self.sites:
+                return True
+        return False
+
     def plot_lattice(self, 
                      cols: list[float] | float = None, 
                      title: str = None, 
@@ -262,7 +283,8 @@ class TightBinding:
             return self.eigh_dense(symmetry)
         else:
             if symmetry is not None:
-                raise NotImplementedError("Can't simultaneously diagonalise sparse matrices")
+                raise NotImplementedError("Can't simultaneously diagonalise sparse matrices, \
+                                          as all eigenvectors of symmetry are required")
             return self.eigh_sparse(n_eighs)
     
     def plot_spectrum(self, show: bool = True) -> None:
