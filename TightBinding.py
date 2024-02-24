@@ -1,24 +1,29 @@
 import numpy as np
 from .Site import Site
 from .shapes import shapes
+from typing import Callable
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Circle
+from scipy.sparse import coo_array
+from scipy.sparse.linalg import eigs
 from .diagonaliser import diagonalise
 
 class TightBinding:
     def __init__(self, 
-                 shape: function, # returns True if a point (x, y) is within bounds
+                 shape: Callable, # returns True if a point (x, y) is within bounds
                  primitive: np.ndarray, # primitive unit vectors (vec1, vec2)
                  loc_sites: list[np.ndarray] = [np.array([0, 0])], # location of sites within unit cell
                  norbs: int = 1, # number of orbitals per site
-                 start: np.ndarray = np.array([0, 0])): # position of unit cell that is inside shape
+                 start: np.ndarray = np.array([0, 0]), # position of unit cell that is inside shape
+                 sparse: bool = False): # whether or not to use a sparse matrix for the Hamiltonian
         
         self.shape = shape
         self.primitive = primitive
         self.loc_sites = loc_sites
         self.norbs = norbs
         self.start = start
+        self.sparse = sparse
     
     def get_pos(self, site: Site) -> np.ndarray:
         return site.unit @ self.primitive + self.loc_sites[site.sublattice]
@@ -60,7 +65,7 @@ class TightBinding:
             size = 0.25
 
         for site in self.sites:
-            patches.append(Circle(self.abs_pos(site), size))
+            patches.append(Circle(self.get_pos(site), size))
 
         p = PatchCollection(patches, cmap = "hot")
         p.set_array(cols)
@@ -92,8 +97,8 @@ class TightBinding:
             assert(value.shape[0] == self.norbs)
             assert(value.shape[1] == self.norbs)
         self.hopping_kind.append([rel_unit, sublattices, value])
-
-    def make_hamiltonian(self) -> np.ndarray:
+    
+    def make_hamiltonian_dense(self) -> np.ndarray:
         self.H = np.zeros((self.dim, self.dim), dtype = np.complex128)
         for i in range(self.sites.shape[0]):
             for j in range(len(self.hopping_kind)):
@@ -106,22 +111,61 @@ class TightBinding:
                         Imax = Imin + self.norbs
                         Jmin = new_indx[0] * self.norbs
                         Jmax = Jmin + self.norbs
-                        self.H[Jmin: Jmax, Imin: Imax] = self.hopping_kind[j][2]
-                        self.H[Imin: Imax, Jmin: Jmax] = np.conj(self.hopping_kind[j][2]).T
+                        self.H[Jmin: Jmax, Imin: Imax] += self.hopping_kind[j][2]
+                        self.H[Imin: Imax, Jmin: Jmax] += np.conj(self.hopping_kind[j][2]).T
         return self.H
     
+    def make_hamiltonian_sparse(self):
+        self.H = coo_array((self.dim, self.dim), dtype = np.complex128)
+        for i in range(self.sites.shape[0]):
+            for j in range(len(self.hopping_kind)):
+                if self.sites[i].sublattice == self.hopping_kind[j][1][0]:
+                    s = Site(self.sites[i].unit + self.hopping_kind[j][0], self.hopping_kind[j][1][1])
+                    new_indx = np.where(self.sites == s)[0]
+
+                    if len(new_indx) > 0:
+                        h = coo_array(self.hopping_kind[j][2])
+                        conjh = coo_array(np.conj(self.hopping_kind[j][2]).T)
+
+                        Imin = i * self.norbs
+                        Jmin = new_indx[0] * self.norbs
+
+                        self.H.data = np.append(self.H.data, h.data)
+                        self.H.row = np.append(self.H.row, h.row + Imin)
+                        self.H.col = np.append(self.H.col, h.col + Jmin)
+
+                        self.H.data = np.append(self.H.data, conjh.data)
+                        self.H.row = np.append(self.H.row, conjh.row + Jmin)
+                        self.H.col = np.append(self.H.col, conjh.col + Imin)
+        return self.H
+    
+    def make_hamiltonian(self):
+        if self.sparse == False:
+            return self.make_hamiltonian_dense()
+        else:
+            return self.make_hamiltonian_sparse()
+    
     def see_hamiltonian(self, show: float = True):
-        fig, axs = plt.subplots(1, 2)
-        axs[0].set_title("Real part")
-        axs[0].imshow(np.real(self.H))
-        axs[1].set_title("Imaginary part")
-        axs[1].imshow(np.imag(self.H))
-        plt.tight_layout()
+        if self.sparse == True:
+            fig, axs = plt.subplots(1, 2)
+            axs[0].set_title("Real part")
+            axs[0].spy(np.real(self.H), markersize = 45 / len(self.sites))
+            axs[1].set_title("Imaginary part")
+            axs[1].spy(np.imag(self.H), markersize = 45 / len(self.sites))
+            plt.tight_layout()
+
+        else:
+            fig, axs = plt.subplots(1, 2)
+            axs[0].set_title("Real part")
+            axs[0].imshow(np.real(self.H))
+            axs[1].set_title("Imaginary part")
+            axs[1].imshow(np.imag(self.H))
+            plt.tight_layout()
 
         if show:
             plt.show()
     
-    def eigh(self, symmetry: np.ndarray = None) -> tuple[np.ndarray]:
+    def eigh_dense(self, symmetry):
         if symmetry is None:
             eighsystem = np.linalg.eigh(self.H)
             eighvals = np.real(eighsystem[0])
@@ -135,6 +179,23 @@ class TightBinding:
             self.eighvals = np.real(eighsystem[0])
             self.eighvecs = eighsystem[1]
             return self.eighvals, self.eighvecs
+
+    def eigh_sparse(self, n_eighs):
+        eighsystem = eigs(self.H, n_eighs, which = "SM")
+        eighvals = np.real(eighsystem[0])
+        eighvecs = eighsystem[1].astype(np.complex128)
+        arr1inds = eighvals.argsort()
+        self.eighvals = eighvals[arr1inds]
+        self.eighvecs = eighvecs[:, arr1inds]
+        return self.eighvals, self.eighvecs
+    
+    def eigh(self, symmetry: np.ndarray = None, n_eighs = 50) -> tuple[np.ndarray]:
+        if self.sparse == False:
+            return self.eigh_dense(symmetry)
+        else:
+            if symmetry is not None:
+                raise NotImplementedError("Can't simultaneously diagonalise sparse matrices")
+            return self.eigh_sparse(n_eighs)
     
     def plot_spectrum(self, show: bool = True):
         plt.figure()
@@ -164,7 +225,7 @@ if __name__ == "__main__":
     shape = shapes["square"]
     tb = TightBinding(shape["shape"](L), shape["primitive"], shape["loc_sites"], norbs)
     tb.initialise()
-    #tb.plot_lattice()
+    tb.plot_lattice()
 
     mat = np.array([[0, 1, 1, 0],
                     [1, 0, 0, 1],
