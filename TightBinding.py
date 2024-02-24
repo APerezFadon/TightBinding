@@ -1,22 +1,31 @@
 import numpy as np
 from .Site import Site
 from .shapes import shapes
+from .diagonaliser import diagonalise
 from typing import Callable
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Circle
+import scipy
 from scipy.sparse import coo_array
 from scipy.sparse.linalg import eigs
-from .diagonaliser import diagonalise
 
 class TightBinding:
     def __init__(self, 
-                 shape: Callable, # returns True if a point (x, y) is within bounds
-                 primitive: np.ndarray, # primitive unit vectors (vec1, vec2)
-                 loc_sites: list[np.ndarray] = [np.array([0, 0])], # location of sites within unit cell
-                 norbs: int = 1, # number of orbitals per site
-                 start: np.ndarray = np.array([0, 0]), # position of unit cell that is inside shape
-                 sparse: bool = False): # whether or not to use a sparse matrix for the Hamiltonian
+                 shape: Callable,
+                 primitive: np.ndarray,
+                 loc_sites: list[np.ndarray] = [np.array([0, 0])],
+                 norbs: int = 1,
+                 start: np.ndarray = np.array([0, 0]),
+                 sparse: bool = False):
+        """
+        shape: function which returns True if a point (x, y) is in the region to constract the 
+            tight-binding model
+        primitive: matrix containing the primitive lattice vectors
+        loc_sites: list of location of sites within the unit cell
+        norbs: number of orbitals per site
+        start: a unit cell inside the region described by shape
+        """
         
         self.shape = shape
         self.primitive = primitive
@@ -26,9 +35,16 @@ class TightBinding:
         self.sparse = sparse
     
     def get_pos(self, site: Site) -> np.ndarray:
+        """
+        Returns the physical position of the site
+        """
         return site.unit @ self.primitive + self.loc_sites[site.sublattice]
 
-    def initialise(self):
+    def initialise(self) -> None:
+        """
+        Calculate the sites enclosed by shape
+        """
+        
         self.dim = 0
         self.sites = []
 
@@ -39,7 +55,12 @@ class TightBinding:
 
         self.hopping_kind = []
 
-    def add_sites(self, current: np.ndarray):
+    def add_sites(self, current: np.ndarray) -> None:
+        """
+        Recursively iterate through sites enclosed by shape. If the site is inside
+        the domain, add it to self.sites
+        """
+        
         fully_out = True
         for i in range(len(self.loc_sites)):
             s = Site(current, i)
@@ -54,7 +75,19 @@ class TightBinding:
             self.add_sites(current + np.array([-1, 0]))
             self.add_sites(current + np.array([0, -1]))
     
-    def plot_lattice(self, cols: list = None, title: str = None, size: list = None, show: bool = True):
+    def plot_lattice(self, 
+                     cols: list[float] | float = None, 
+                     title: str = None, 
+                     size: list[int] | int = None, 
+                     show: bool = True) -> None:
+        """
+        Display the lattice
+        cols: list of numbers proportional to the Local Density of States (LDOS)
+        title: title for the plot
+        size: list of sizes to represent each site (defaults to 0.25)
+        show: if True, run plt.show()
+        """
+
         fig, ax = plt.subplots()
         patches = []
 
@@ -85,14 +118,25 @@ class TightBinding:
             plt.show()
         
     def site_to_vec(self, site: Site) -> np.ndarray:
+        """
+        Map a given site to a vector of the Hilbert space
+        """
         indx = np.where(self.sites == site)[0][0]
         vec = np.zeros((self.sites.shape[0], 1), dtype = np.complex128)
         vec[indx] = 1
         return vec
     
-    def add_hopping_kind(self, rel_unit: np.ndarray, # relative vector between unit cells
-                               sublattices: tuple, # (source sublattice, target sublattice)
-                               value: np.ndarray): # matrix element
+    def add_hopping_kind(self, 
+                         rel_unit: np.ndarray,
+                         sublattices: tuple,
+                         value: np.ndarray) -> None:
+        """
+        Add a hopping to the model
+        rel_unit: relative vector between unit cells
+        sublattices: (source sublattice index, target sublattice index)
+        value: matrix element corresponding to this hopping
+        """
+
         if self.norbs != 1:
             assert(value.shape[0] == self.norbs)
             assert(value.shape[1] == self.norbs)
@@ -115,7 +159,7 @@ class TightBinding:
                         self.H[Imin: Imax, Jmin: Jmax] += np.conj(self.hopping_kind[j][2]).T
         return self.H
     
-    def make_hamiltonian_sparse(self):
+    def make_hamiltonian_sparse(self) -> scipy.sparse._coo.coo_array:
         self.H = coo_array((self.dim, self.dim), dtype = np.complex128)
         for i in range(self.sites.shape[0]):
             for j in range(len(self.hopping_kind)):
@@ -139,13 +183,22 @@ class TightBinding:
                         self.H.col = np.append(self.H.col, conjh.col + Imin)
         return self.H
     
-    def make_hamiltonian(self):
+    def make_hamiltonian(self) -> np.ndarray | scipy.sparse._coo.coo_array:
+        """
+        Calculates the Hamiltonian from the hopping
+        """
+
         if self.sparse == False:
             return self.make_hamiltonian_dense()
         else:
             return self.make_hamiltonian_sparse()
     
-    def see_hamiltonian(self, show: float = True):
+    def see_hamiltonian(self, show: float = True) -> None:
+        """
+        Display the Hamiltonian (for debugging)
+        show: if True, run plt.show()
+        """
+        
         if self.sparse == True:
             fig, axs = plt.subplots(1, 2)
             axs[0].set_title("Real part")
@@ -165,7 +218,12 @@ class TightBinding:
         if show:
             plt.show()
     
-    def eigh_dense(self, symmetry):
+    def eigh_dense(self, symmetry: np.ndarray) -> tuple[np.ndarray]:
+        """
+        Diagonalise the Hamiltonian. Returns a tuple (eigenvalues, eigenvectors)
+        symmetry: If given one, simultaneously diagonalise the Hamiltonian and symmetry
+        """
+        
         if symmetry is None:
             eighsystem = np.linalg.eigh(self.H)
             eighvals = np.real(eighsystem[0])
@@ -180,7 +238,13 @@ class TightBinding:
             self.eighvecs = eighsystem[1]
             return self.eighvals, self.eighvecs
 
-    def eigh_sparse(self, n_eighs):
+    def eigh_sparse(self, n_eighs: int) -> tuple[np.ndarray]:
+        """
+        Diagonalise the Hamiltonian. Returns a tuple (eigenvalues, eigenvectors)
+        n_eighs: Number of eigenvectors to calculate and return. Default is the ones
+            with the smallest magnitudes (SM)
+        """
+
         eighsystem = eigs(self.H, n_eighs, which = "SM")
         eighvals = np.real(eighsystem[0])
         eighvecs = eighsystem[1].astype(np.complex128)
@@ -189,7 +253,11 @@ class TightBinding:
         self.eighvecs = eighvecs[:, arr1inds]
         return self.eighvals, self.eighvecs
     
-    def eigh(self, symmetry: np.ndarray = None, n_eighs = 50) -> tuple[np.ndarray]:
+    def eigh(self, symmetry: np.ndarray = None, n_eighs: int = 50) -> tuple[np.ndarray]:
+        """
+        Diagonalise the Hamiltonian
+        """
+        
         if self.sparse == False:
             return self.eigh_dense(symmetry)
         else:
@@ -197,7 +265,12 @@ class TightBinding:
                 raise NotImplementedError("Can't simultaneously diagonalise sparse matrices")
             return self.eigh_sparse(n_eighs)
     
-    def plot_spectrum(self, show: bool = True):
+    def plot_spectrum(self, show: bool = True) -> None:
+        """
+        Plot the spectrum of the Hamiltonain
+        show: if True, run plt.show()
+        """
+        
         plt.figure()
         plt.title("Spectrum")
         plt.scatter([i for i in range(self.eighvals.shape[0])], self.eighvals, s = 5)
@@ -208,7 +281,14 @@ class TightBinding:
         if show:
             plt.show()
     
-    def plot_eigenstate(self, i: int, size: int = None, show = True):
+    def plot_eigenstate(self, i: int, size: int | list[int] = None, show = True) -> None:
+        """
+        Display the ith eigenstate of the Hamiltonian
+        i: index of the eigenstate to display by increasing energy
+        size: size of each site
+        show: If true, run plt.show()
+        """
+        
         cols = np.zeros(self.sites.shape[0])
         for k in range(0, self.dim, self.norbs):
             for orb in range(self.norbs):
